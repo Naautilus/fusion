@@ -1,17 +1,22 @@
 pub mod renderer;
 extern crate nalgebra as na;
 
-fn main() {
-    /*
-    println!("Hello, world!");
-    //let returntype = ;
-    let interface = renderer::interface::Interface::new();
+/*
+main:
 
+uses physics::interface and renderer::interface to start the physics and renderer halves of the program.
+*/
+
+fn main() {
+    
+    //println!("Hello, world!");
+    renderer::interface::start_thread();
+
+
+    /*
     for i in 1..100 {
         println!("main hi {}", i);
     }
-
-    let _ = interface.thread.join();
 
     let mut new_vector = na::Vector3::new(1.0, 0.0, 0.0);
     

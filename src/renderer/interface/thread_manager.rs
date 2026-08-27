@@ -1,0 +1,25 @@
+pub mod core;
+pub mod opengl_interface;
+pub mod user_io;
+
+/*
+mod thread_manager:
+
+manages the render thread.
+*/
+
+pub struct RenderThread {
+    pub thread: std::thread::JoinHandle<()>
+}
+
+pub fn test_function() {
+    for i in 1..1000 {
+        println!("thread hi {}", i);
+    }
+}
+
+impl RenderThread {
+    pub fn new() -> Self {
+        Self{thread: std::thread::spawn(|| {test_function()})}
+    }
+}

@@ -1,15 +1,11 @@
-pub struct Interface {
-    pub thread: std::thread::JoinHandle<()>
-}
+pub mod thread_manager;
 
-pub fn test_function() {
-    for i in 1..100 {
-        println!("thread hi {}", i);
-    }
-}
+/*
+renderer::interface:
 
-impl Interface {
-    pub fn new() -> Self {
-        Self{thread: std::thread::spawn(|| {test_function()})}
-    }
+has functions that help start the renderer thread, and lets the renderer thread access physics data.
+*/
+
+pub fn start_thread() {
+    thread_manager::RenderThread::new();
 }
