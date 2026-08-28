@@ -1,6 +1,7 @@
-mod core;
+pub mod core;
 mod opengl_interface;
 mod user_io;
+mod texture;
 
 /*
 mod thread_manager:
@@ -20,6 +21,6 @@ pub fn test_function() {
 
 impl RenderThread {
     pub fn new() -> Self {
-        Self{thread: std::thread::spawn(|| {test_function()})}
+        Self{thread: std::thread::spawn(|| {core::run().unwrap()})}
     }
 }
