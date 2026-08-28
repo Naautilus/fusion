@@ -1,6 +1,6 @@
-pub mod core;
-pub mod opengl_interface;
-pub mod user_io;
+mod core;
+mod opengl_interface;
+mod user_io;
 
 /*
 mod thread_manager:
