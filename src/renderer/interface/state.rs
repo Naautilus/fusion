@@ -1,212 +1,23 @@
 /*
-mod core:
+mod state:
 
-the core of the renderer; controls the logic of object positioning,
-and uses user_io and opengl_interface to abstract away the opengl/io layer.
+structs State and App are defined here.
 */
 
-use crate::renderer::interface::thread_manager::texture;
+use cgmath::prelude::*;
+use crate::renderer::interface::core;
+use crate::renderer::interface::texture;
+use crate::renderer::interface::camera;
 use std::sync::Arc;
 use nalgebra as na;
 
 use winit::{
-    application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop, EventLoop, EventLoopBuilder}, keyboard::{KeyCode, PhysicalKey}, platform::x11::EventLoopBuilderExtX11, window::Window
+    application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
 };
 
 use wgpu::util::DeviceExt;
 
-// lib.rs
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
-    //color: [f32; 3],
-}
-
-// lib.rs
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                /*
-                color
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 5]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-                }
-                */
-            ]
-        }
-    }
-}
-
-// lib.rs
-/*
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
-];
-*/
-
-const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_coords: [0.4131759, 0.00759614], }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_coords: [0.0048659444, 0.43041354], }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], tex_coords: [0.28081453, 0.949397], }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], tex_coords: [0.85967, 0.84732914], }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], tex_coords: [0.9414737, 0.2652641], }, // E
-];
-
-
-
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
-
-
-struct Camera {
-    eye: na::Point3<f32>,
-    target: na::Point3<f32>,
-    up: na::Vector3<f32>,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
-}
-
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: na::Matrix4<f32> = na::Matrix4::new(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 1.0);
-
-impl Camera {
-    fn build_view_projection_matrix(&self) -> na::Matrix4<f32> {
-        // 1.
-        let view = na::Matrix4::look_at_rh(&self.eye, &self.target, &self.up);
-        // 2.
-        //let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-        let proj = na::Matrix4::new_perspective(self.aspect, self.fovy, self.znear, self.zfar);
-
-        // 3.
-        return OPENGL_TO_WGPU_MATRIX * proj * view;
-    }
-}
-
-// We need this for Rust to store our data correctly for the shaders
-#[repr(C)]
-// This is so we can store this in a buffer
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    // We can't use cgmath with bytemuck directly, so we'll have
-    // to convert the Matrix4 into a 4x4 f32 array
-    view_proj: [[f32; 4]; 4],
-}
-
-impl CameraUniform {
-    fn new() -> Self {
-        use na::SquareMatrix;
-        Self {
-            view_proj: na::Matrix4::identity().into(),
-        }
-    }
-
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_proj = camera.build_view_projection_matrix().into();
-    }
-}
-
-struct CameraController {
-    speed: f32,
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
-}
-
-impl CameraController {
-    fn new(speed: f32) -> Self {
-        Self {
-            speed,
-            is_forward_pressed: false,
-            is_backward_pressed: false,
-            is_left_pressed: false,
-            is_right_pressed: false,
-        }
-    }
-
-    fn handle_key(&mut self, code: KeyCode, is_pressed: bool) -> bool {
-        match code {
-            KeyCode::KeyW | KeyCode::ArrowUp => {
-                self.is_forward_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyA | KeyCode::ArrowLeft => {
-                self.is_left_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyS | KeyCode::ArrowDown => {
-                self.is_backward_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyD | KeyCode::ArrowRight => {
-                self.is_right_pressed = is_pressed;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn update_camera(&self, camera: &mut Camera) {
-        let forward = camera.target - camera.eye;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
-
-        // Prevents glitching when the camera gets too close to the
-        // center of the scene.
-        if self.is_forward_pressed && forward_mag > self.speed {
-            camera.eye += forward_norm * self.speed;
-        }
-        if self.is_backward_pressed {
-            camera.eye -= forward_norm * self.speed;
-        }
-
-        let right = forward_norm.cross(&camera.up);
-
-        // Redo radius calc in case the forward/backward is pressed.
-        let forward = camera.target - camera.eye;
-        let forward_mag = forward.magnitude();
-
-        if self.is_right_pressed {
-            // Rescale the distance between the target and the eye so 
-            // that it doesn't change. The eye, therefore, still 
-            // lies on the circle made by the target and eye.
-            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.is_left_pressed {
-            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
-        }
-    }
-}
-
-
-
-// This will store the state of the renderer
+// This stores the state of the renderer
 pub struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -220,17 +31,18 @@ pub struct State {
     num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
-    camera: Camera,
-    camera_uniform: CameraUniform,
+    camera: camera::Camera,
+    camera_uniform: camera::CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    camera_controller: CameraController,
+    camera_controller: camera::CameraController,
+    instances: Vec<core::Instance>,
+    instance_buffer: wgpu::Buffer,
+    depth_texture: texture::Texture,
 }
 
 impl State {
-    // We don't need this to be async right now,
-    // but we will in the next tutorial
-    async fn new(window: Arc<Window>) -> anyhow::Result<State> {
+    pub async fn new(window: Arc<Window>) -> anyhow::Result<State> {
 
         let size = window.inner_size();
 
@@ -260,8 +72,6 @@ impl State {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                // WebGL doesn't support all of wgpu's features, so if
-                // we're building for the web we'll have to disable some.
                 required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
@@ -290,11 +100,8 @@ impl State {
             color_space: wgpu::SurfaceColorSpace::Srgb
         };
 
-        let diffuse_bytes = include_bytes!("../../../happy-tree.png"); // CHANGED!
-        let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap(); // CHANGED!
-
-        // Everything up until `let texture_bind_group_layout = ...` can now be removed.
-
+        let diffuse_bytes = include_bytes!("../../happy-tree.png");
+        let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
         // 1 for all textures
         let texture_bind_group_layout =
@@ -344,14 +151,14 @@ impl State {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../../shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shader.wgsl").into()),
         });
 
 
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
+                contents: bytemuck::cast_slice(core::VERTICES),
                 usage: wgpu::BufferUsages::VERTEX,
             }
         );
@@ -359,14 +166,14 @@ impl State {
         let index_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
+                contents: bytemuck::cast_slice(core::INDICES),
                 usage: wgpu::BufferUsages::INDEX,
             }
         );
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = core::INDICES.len() as u32;
 
-        let camera = Camera {
+        let camera = camera::Camera {
             // position the camera 1 unit up and 2 units back
             // +z is out of the screen
             eye: na::Point3::new(0.0, 1.0, 2.0).into(),
@@ -380,7 +187,7 @@ impl State {
             zfar: 100.0,
         };
 
-        let mut camera_uniform = CameraUniform::new();
+        let mut camera_uniform = camera::CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
 
         let camera_buffer = device.create_buffer_init(
@@ -435,16 +242,14 @@ impl State {
                 layout: Some(&render_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("vs_main"), // 1.
-                    buffers: &[
-                        Some(Vertex::desc()),
-                    ],
+                    entry_point: Some("vs_main"),
+                    buffers: &[Some(core::Vertex::descriptor()), Some(core::InstanceRaw::descriptor())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
-                fragment: Some(wgpu::FragmentState { // 3.
+                fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState { // 4.
+                    targets: &[Some(wgpu::ColorTargetState {
                         format: config.format,
                         blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
@@ -452,9 +257,9 @@ impl State {
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 }),
                 primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList, // 1.
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw, // 2.
+                front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
@@ -463,17 +268,55 @@ impl State {
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            depth_stencil: None, // 1.
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
-                count: 1, // 2.
-                mask: !0, // 3.
-                alpha_to_coverage_enabled: false, // 4.
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
             },
-            multiview_mask: None, // 5.
-            cache: None, // 6.
+            multiview_mask: None,
+            cache: None,
         });
 
-        let camera_controller = CameraController::new(0.2);
+        let camera_controller = camera::CameraController::new(0.02);
+
+        const NUM_INSTANCES_PER_ROW: u32 = 10;
+        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
+
+        let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
+            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32 } - INSTANCE_DISPLACEMENT;
+
+                let rotation = if position.is_zero() {
+                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                    // as Quaternions can affect scale if they're not created correctly
+                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                } else {
+                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                };
+
+                core::Instance {
+                    position, rotation,
+                }
+            })
+        }).collect::<Vec<_>>();
+
+        let instance_data = instances.iter().map(core::Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Ok(Self {
             surface,
@@ -493,10 +336,12 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            instances,
+            instance_buffer,
+            depth_texture,
         })
     }
 
-    // impl State
     pub fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.config.width = width;
@@ -509,10 +354,10 @@ impl State {
             self.config.width = width.min(max);
             self.config.height = height.min(max);
         }
+        self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
-    // impl State
-    fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+    pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         if code == KeyCode::Escape && is_pressed {
             event_loop.exit();
         } else {
@@ -520,11 +365,7 @@ impl State {
         }
     }
 
-
-
-    // impl State
-
-    fn render(&mut self) -> anyhow::Result<()> {
+    pub fn render(&mut self) -> anyhow::Result<()> {
         self.window.request_redraw();
 
         // We can't render unless the surface is configured
@@ -579,7 +420,14 @@ impl State {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
@@ -589,8 +437,9 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1); // 2.
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
         // submit will accept anything that implements IntoIter
@@ -600,14 +449,13 @@ impl State {
         Ok(())
     }
 
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
     }
-
-
 }
+
 
 pub struct App {
     state: Option<State>,
@@ -677,20 +525,4 @@ impl ApplicationHandler<State> for App {
             _ => {}
         }
     }
-}
-
-pub fn run() -> anyhow::Result<()> {
-    {
-        env_logger::init();
-    }
-
-    let mut event_loop_builder = EventLoop::with_user_event();
-    EventLoopBuilderExtX11::with_any_thread(&mut event_loop_builder, true);
-    let event_loop = event_loop_builder.build()?;
-    {
-        let mut app = App::new();
-        event_loop.run_app(&mut app)?;
-    }
-
-    Ok(())
 }
