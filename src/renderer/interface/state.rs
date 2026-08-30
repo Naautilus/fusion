@@ -289,7 +289,7 @@ impl State {
 
         let camera_controller = camera::CameraController::new(0.02);
 
-        let instances = Self::generate_instances();
+        let instances = Self::get_instances();
         let instance_data = instances.iter().map(core::Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -421,7 +421,7 @@ impl State {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
@@ -437,7 +437,7 @@ impl State {
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 
-        self.instances = Self::generate_instances();
+        self.instances = Self::get_instances();
         let instance_data = self.instances.iter().map(core::Instance::to_raw).collect::<Vec<_>>();
         self.instance_buffer = self.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -449,7 +449,7 @@ impl State {
 
     }
 
-    pub fn generate_instances() -> Vec<core::Instance> {
+    pub fn get_instances() -> Vec<core::Instance> {
 
         let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         let num_instances_per_row: u32 = (seconds % 3 + 8) as u32;

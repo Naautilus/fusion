@@ -5,11 +5,8 @@ structs for uniform types are here.
 */
 
 use nalgebra as na;
-use winit::keyboard::NamedKey::New;
 
 use crate::renderer::interface::camera;
-use crate::renderer::interface::core;
-use crate::renderer::interface::core::Vertex;
 
 
 // We need this for Rust to store our data correctly for the shaders

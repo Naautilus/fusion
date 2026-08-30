@@ -10,8 +10,6 @@ use winit::{
     keyboard::{KeyCode}
 };
 
-use crate::renderer::interface::uniform;
-
 pub struct Camera {
     pub eye: na::Point3<f32>,
     pub target: na::Point3<f32>,
