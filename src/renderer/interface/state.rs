@@ -5,11 +5,15 @@ structs State and App are defined here.
 */
 
 use cgmath::prelude::*;
+use rand::rand_core;
 use crate::renderer::interface::core;
-use crate::renderer::interface::texture;
 use crate::renderer::interface::camera;
+use crate::renderer::interface::core::Vertex;
+use crate::renderer::interface::texture;
+use crate::renderer::interface::uniform;
 use std::sync::Arc;
 use nalgebra as na;
+use std::time::{SystemTime};
 
 use winit::{
     application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
@@ -32,7 +36,7 @@ pub struct State {
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
     camera: camera::Camera,
-    camera_uniform: camera::CameraUniform,
+    camera_uniform: uniform::CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     camera_controller: camera::CameraController,
@@ -187,7 +191,7 @@ impl State {
             zfar: 100.0,
         };
 
-        let mut camera_uniform = camera::CameraUniform::new();
+        let mut camera_uniform = uniform::CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
 
         let camera_buffer = device.create_buffer_init(
@@ -224,7 +228,6 @@ impl State {
             ],
             label: Some("camera_bind_group"),
         });
-
 
         let render_pipeline_layout = device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
@@ -286,27 +289,7 @@ impl State {
 
         let camera_controller = camera::CameraController::new(0.02);
 
-        const NUM_INSTANCES_PER_ROW: u32 = 10;
-        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(NUM_INSTANCES_PER_ROW as f32 * 0.5, 0.0, NUM_INSTANCES_PER_ROW as f32 * 0.5);
-
-        let instances = (0..NUM_INSTANCES_PER_ROW).flat_map(|z| {
-            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32 } - INSTANCE_DISPLACEMENT;
-
-                let rotation = if position.is_zero() {
-                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                    // as Quaternions can affect scale if they're not created correctly
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                };
-
-                core::Instance {
-                    position, rotation,
-                }
-            })
-        }).collect::<Vec<_>>();
-
+        let instances = Self::generate_instances();
         let instance_data = instances.iter().map(core::Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -350,7 +333,7 @@ impl State {
             self.is_surface_configured = true;
         }
         if width > 0 && height > 0 {
-            let max = 2048;
+            let max = 9999;
             self.config.width = width.min(max);
             self.config.height = height.min(max);
         }
@@ -453,6 +436,42 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+
+        self.instances = Self::generate_instances();
+        let instance_data = self.instances.iter().map(core::Instance::to_raw).collect::<Vec<_>>();
+        self.instance_buffer = self.device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+    }
+
+    pub fn generate_instances() -> Vec<core::Instance> {
+
+        let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+        let num_instances_per_row: u32 = (seconds % 3 + 8) as u32;
+        let instance_displacement: cgmath::Vector3<f32> = cgmath::Vector3::new(num_instances_per_row as f32 * 0.5, 0.0, num_instances_per_row as f32 * 0.5);
+
+        return (0..num_instances_per_row).flat_map(|z| {
+            (0..num_instances_per_row).map(move |x| {
+                let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32 } - instance_displacement;
+
+                let rotation = if position.is_zero() {
+                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                    // as Quaternions can affect scale if they're not created correctly
+                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                } else {
+                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                };
+
+                core::Instance {
+                    position, rotation,
+                }
+            })
+        }).collect::<Vec<_>>();
     }
 }
 

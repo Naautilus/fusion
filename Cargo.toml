@@ -5,8 +5,9 @@ edition = "2024"
 
 [dependencies]
 
-# nalgebra
+# mine
 nalgebra = "*"
+rand = "*"
 
 # wgpu
 anyhow = "1.0"

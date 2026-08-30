@@ -2,6 +2,7 @@ mod core;
 mod state;
 mod camera;
 mod texture;
+mod uniform;
 mod descriptors;
 
 /*
