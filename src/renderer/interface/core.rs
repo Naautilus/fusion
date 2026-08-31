@@ -18,6 +18,28 @@ pub struct Vertex {
     pub tex_coords: [f32; 2],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct InstanceRaw {
+    pub model: [[f32; 4]; 4],
+}
+
+#[derive(Clone)]
+pub struct Instance {
+    pub position: cgmath::Vector3<f32>,
+    pub rotation: cgmath::Quaternion<f32>,
+}
+
+impl Instance {
+    pub fn to_raw(&self) -> InstanceRaw {
+        InstanceRaw {
+            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
+        }
+    }
+}
+
+
+
 pub const VERTICES: &[Vertex] = &[
     Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_coords: [0.4131759, 0.00759614], },
     Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_coords: [0.0048659444, 0.43041354], },
@@ -32,23 +54,6 @@ pub const INDICES: &[u16] = &[
     2, 3, 4,
 ];
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct InstanceRaw {
-    pub model: [[f32; 4]; 4],
-}
-pub struct Instance {
-    pub position: cgmath::Vector3<f32>,
-    pub rotation: cgmath::Quaternion<f32>,
-}
-
-impl Instance {
-    pub fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
-        }
-    }
-}
 
 pub fn run() -> anyhow::Result<()> {
     {

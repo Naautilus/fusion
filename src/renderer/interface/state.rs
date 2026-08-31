@@ -5,10 +5,8 @@ structs State and App are defined here.
 */
 
 use cgmath::prelude::*;
-use rand::rand_core;
 use crate::renderer::interface::core;
 use crate::renderer::interface::camera;
-use crate::renderer::interface::core::Vertex;
 use crate::renderer::interface::texture;
 use crate::renderer::interface::uniform;
 use std::sync::Arc;
@@ -30,8 +28,15 @@ pub struct State {
     is_surface_configured: bool,
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
+
+    vertices: Vec<Vec<core::Vertex>>,
+    indices: Vec<Vec<u16>>,
+    instances: Vec<Vec<core::Instance>>,
+
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer, 
+    instance_buffer: wgpu::Buffer,
+
     num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
@@ -40,8 +45,6 @@ pub struct State {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     camera_controller: camera::CameraController,
-    instances: Vec<core::Instance>,
-    instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
 }
 
@@ -158,22 +161,7 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shader.wgsl").into()),
         });
 
-
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(core::VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
-
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(core::INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
+        
 
         let num_indices = core::INDICES.len() as u32;
 
@@ -289,17 +277,19 @@ impl State {
 
         let camera_controller = camera::CameraController::new(0.02);
 
-        let instances = Self::get_instances();
-        let instance_data = instances.iter().map(core::Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(&instance_data),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
-
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+
+        let (
+            vertices,
+            indices,
+            instances,
+        ) = Self::set_draw_data(&device);
+
+        let (
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
+        ) = Self::set_buffers(&device, 0, &vertices, &indices, &instances);
 
         Ok(Self {
             surface,
@@ -309,8 +299,15 @@ impl State {
             is_surface_configured: false,
             window,
             render_pipeline,
+
+            vertices,
+            indices,
+            instances,
+
             vertex_buffer,
             index_buffer,
+            instance_buffer,
+
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
@@ -319,8 +316,6 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
-            instances,
-            instance_buffer,
             depth_texture,
         })
     }
@@ -416,13 +411,22 @@ impl State {
                 multiview_mask: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+            for i in 0..(self.instances.len()) {
+
+                (
+                    self.vertex_buffer,
+                    self.index_buffer,
+                    self.instance_buffer,
+                ) = Self::set_buffers(&self.device, i, &self.vertices, &self.indices, &self.instances);
+
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances[i].len() as _);
+            }
         }
 
         // submit will accept anything that implements IntoIter
@@ -437,41 +441,106 @@ impl State {
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 
-        self.instances = Self::get_instances();
-        let instance_data = self.instances.iter().map(core::Instance::to_raw).collect::<Vec<_>>();
-        self.instance_buffer = self.device.create_buffer_init(
+        println!("vertices size: {}", self.vertices.len());
+        println!("vertices[0] size: {}", self.vertices[0].len());
+
+        println!("instances size: {}", self.instances.len());
+        println!("instances[0] size: {}", self.instances[0].len());
+
+        (
+            self.vertices,
+            self.indices,
+            self.instances,
+        ) = Self::set_draw_data(&self.device);
+
+    }
+
+    pub fn set_draw_data(device: &wgpu::Device) -> (Vec<Vec<core::Vertex>>, Vec<Vec<u16>>, Vec<Vec<core::Instance>>) {
+        let vertices = Self::get_vertices();
+        let indices = Self::get_indices();
+        let instances = Self::get_instances();
+        return (vertices, indices, instances);
+    }
+
+    pub fn set_buffers(device: &wgpu::Device, index: usize, vertices: &Vec<Vec<core::Vertex>>, indices: &Vec<Vec<u16>>, instances: &Vec<Vec<core::Instance>>) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer) {
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(&vertices[index]),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(&indices[index]),
+                usage: wgpu::BufferUsages::INDEX,
+            }
+        );
+        // instances is pos+rot vector+quaternion instead of a pos+rot matrix; to_raw converts it to a matrix
+        let instance_data = instances[index].iter().map(core::Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
                 contents: bytemuck::cast_slice(&instance_data),
                 usage: wgpu::BufferUsages::VERTEX,
             }
         );
-
+        return (vertex_buffer, index_buffer, instance_buffer);
     }
 
-    pub fn get_instances() -> Vec<core::Instance> {
+    pub fn get_vertices() -> Vec<Vec<core::Vertex>> {
+        let mut output = vec![core::VERTICES.to_vec(); 5];
+        for i in 0..5 {
+            for v in &mut output[i] {
+                v.position[0] *= i as f32;
+                v.position[1] *= i as f32;
+                v.position[2] *= i as f32;
+            }
+        }
+        return output;
+    }
+
+    pub fn get_indices() -> Vec<Vec<u16>> {
+        let mut output: Vec<Vec<u16>> = Vec::new();
+        for i in 0..5 {
+            let vec = core::INDICES.to_vec();
+            let vec = vec.iter().map(|n| {n + (i%2) as u16}).collect::<Vec<_>>();
+            output.push(vec);
+        }
+        println!("{:?}", output);
+        return output;
+    }
+
+    pub fn get_instances() -> Vec<Vec<core::Instance>> {
 
         let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
         let num_instances_per_row: u32 = (seconds % 3 + 8) as u32;
         let instance_displacement: cgmath::Vector3<f32> = cgmath::Vector3::new(num_instances_per_row as f32 * 0.5, 0.0, num_instances_per_row as f32 * 0.5);
 
-        return (0..num_instances_per_row).flat_map(|z| {
-            (0..num_instances_per_row).map(move |x| {
-                let position = cgmath::Vector3 { x: x as f32, y: 0.0, z: z as f32 } - instance_displacement;
+        let mut output: Vec<Vec<core::Instance>> = Vec::new();
 
-                let rotation = if position.is_zero() {
-                    // this is needed so an object at (0, 0, 0) won't get scaled to zero
-                    // as Quaternions can affect scale if they're not created correctly
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                };
+        for y_level in 0..5 {
+            output.push((0..num_instances_per_row).flat_map(|z| {
+                (0..num_instances_per_row).map(move |x| {
+                    let position = cgmath::Vector3 { x: x as f32 * (1.0 + (y_level as f32)), y: y_level as f32, z: z as f32 } - instance_displacement;
+    
+                    let rotation = if position.is_zero() {
+                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as Quaternions can affect scale if they're not created correctly
+                        cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                    };
+    
+                    core::Instance {
+                        position, rotation,
+                    }
+                })
+            }).collect::<Vec<_>>());
+        }
 
-                core::Instance {
-                    position, rotation,
-                }
-            })
-        }).collect::<Vec<_>>();
+        return output;
     }
 }
 
