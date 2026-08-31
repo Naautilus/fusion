@@ -4,6 +4,7 @@ mod camera;
 mod texture;
 mod uniform;
 mod descriptors;
+pub mod shape;
 
 /*
 renderer::interface:
