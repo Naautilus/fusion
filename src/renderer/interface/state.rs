@@ -341,11 +341,11 @@ impl State {
     }
 
     pub fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
-        if code == KeyCode::Escape && is_pressed {
-            event_loop.exit();
-        } else {
+        //if code == KeyCode::Escape && is_pressed {
+        //    event_loop.exit();
+        //} else {
             self.camera_controller.handle_key(code, is_pressed);
-        }
+        //}
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
