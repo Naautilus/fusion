@@ -6,7 +6,9 @@ structs State and App are defined here.
 
 use cgmath::prelude::*;
 use crate::renderer::interface::core;
+use crate::renderer::interface::shape;
 use crate::renderer::interface::camera;
+use crate::renderer::interface::shape::ShapeManager;
 use crate::renderer::interface::texture;
 use crate::renderer::interface::uniform;
 use std::sync::Arc;
@@ -37,7 +39,8 @@ pub struct State {
     index_buffer: wgpu::Buffer, 
     instance_buffer: wgpu::Buffer,
 
-    num_indices: u32,
+    shape_manager: shape::ShapeManager,
+
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
     camera: camera::Camera,
@@ -163,8 +166,6 @@ impl State {
 
         
 
-        let num_indices = core::INDICES.len() as u32;
-
         let camera = camera::Camera {
             // position the camera 1 unit up and 2 units back
             // +z is out of the screen
@@ -279,11 +280,13 @@ impl State {
 
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
+        let mut shape_manager = shape::ShapeManager::new();
+
         let (
             vertices,
             indices,
             instances,
-        ) = Self::set_draw_data(&device);
+        ) = Self::set_draw_data(&mut shape_manager);
 
         let (
             vertex_buffer,
@@ -308,7 +311,8 @@ impl State {
             index_buffer,
             instance_buffer,
 
-            num_indices,
+            shape_manager,
+
             diffuse_bind_group,
             diffuse_texture,
             camera,
@@ -425,7 +429,7 @@ impl State {
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances[i].len() as _);
+                render_pass.draw_indexed(0..self.indices[i].len() as _, 0, 0..self.instances[i].len() as _);
             }
         }
 
@@ -451,13 +455,13 @@ impl State {
             self.vertices,
             self.indices,
             self.instances,
-        ) = Self::set_draw_data(&self.device);
+        ) = Self::set_draw_data(&mut self.shape_manager);
 
     }
 
-    pub fn set_draw_data(device: &wgpu::Device) -> (Vec<Vec<core::Vertex>>, Vec<Vec<u16>>, Vec<Vec<core::Instance>>) {
-        let vertices = Self::get_vertices();
-        let indices = Self::get_indices();
+    pub fn set_draw_data(shape_manager: &mut ShapeManager) -> (Vec<Vec<core::Vertex>>, Vec<Vec<u16>>, Vec<Vec<core::Instance>>) {
+        let vertices = Self::get_vertices(shape_manager);
+        let indices = Self::get_indices(shape_manager);
         let instances = Self::get_instances();
         return (vertices, indices, instances);
     }
@@ -489,26 +493,27 @@ impl State {
         return (vertex_buffer, index_buffer, instance_buffer);
     }
 
-    pub fn get_vertices() -> Vec<Vec<core::Vertex>> {
-        let mut output = vec![core::VERTICES.to_vec(); 5];
+    pub fn get_vertices(shape_manager: &mut ShapeManager) -> Vec<Vec<core::Vertex>> {
+        let mut output: Vec<Vec<core::Vertex>> = Vec::new();//vec![shape_manager.get_shape_mesh(shape::Shape::new_polygon(1.0, i+3)).clone().vertices; 5];
+        //let mut output = vec![core::VERTICES.to_vec(); 5];
         for i in 0..5 {
-            for v in &mut output[i] {
+            /*for v in &mut output[i] {
                 v.position[0] *= i as f32;
                 v.position[1] *= i as f32;
                 v.position[2] *= i as f32;
-            }
+            }*/
+            output.push(shape_manager.get_shape_mesh(shape::Shape::new_polygon(0.5, 3+i)).clone().vertices);
         }
+        println!("{:?}", output[1]);
         return output;
     }
 
-    pub fn get_indices() -> Vec<Vec<u16>> {
+    pub fn get_indices(shape_manager: &mut ShapeManager) -> Vec<Vec<u16>> {
         let mut output: Vec<Vec<u16>> = Vec::new();
         for i in 0..5 {
-            let vec = core::INDICES.to_vec();
-            let vec = vec.iter().map(|n| {n + (i%2) as u16}).collect::<Vec<_>>();
-            output.push(vec);
+            output.push(shape_manager.get_shape_mesh(shape::Shape::new_polygon(0.5, 3+i)).clone().indices);
         }
-        println!("{:?}", output);
+        println!("{:?}", output[0]);
         return output;
     }
 
@@ -523,14 +528,14 @@ impl State {
         for y_level in 0..5 {
             output.push((0..num_instances_per_row).flat_map(|z| {
                 (0..num_instances_per_row).map(move |x| {
-                    let position = cgmath::Vector3 { x: x as f32 * (1.0 + (y_level as f32)), y: y_level as f32, z: z as f32 } - instance_displacement;
+                    let position = cgmath::Vector3 { x: x as f32 * (1.0 + ((0*y_level) as f32)), y: y_level as f32, z: z as f32 } - instance_displacement;
     
                     let rotation = if position.is_zero() {
                         // this is needed so an object at (0, 0, 0) won't get scaled to zero
                         // as Quaternions can affect scale if they're not created correctly
                         cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
                     } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
                     };
     
                     core::Instance {
