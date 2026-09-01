@@ -4,7 +4,8 @@ mod camera:
 structs Camera and CameraController are defined here.
 */
 
-use nalgebra as na;
+use cgmath::Vector3;
+use nalgebra::{self as na, Unit};
 
 use winit::{
     keyboard::{KeyCode}
@@ -34,75 +35,69 @@ impl Camera {
 }
 
 pub struct CameraController {
-    speed: f32,
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
+    translate_speed: f32,
+    rotate_speed: f32,
+    translation: na::Vector3<f32>,
+    rotation: na::Vector3<f32>,
 }
 
 impl CameraController {
-    pub fn new(speed: f32) -> Self {
+    pub fn new(translate_speed: f32, rotate_speed: f32) -> Self {
         Self {
-            speed,
-            is_forward_pressed: false,
-            is_backward_pressed: false,
-            is_left_pressed: false,
-            is_right_pressed: false,
+            translate_speed: translate_speed,
+            rotate_speed: rotate_speed,
+            translation: na::Vector3::new(0.0, 0.0, 0.0),
+            rotation: na::Vector3::new(0.0, 0.0, 0.0),
         }
     }
 
-    pub fn handle_key(&mut self, code: KeyCode, is_pressed: bool) -> bool {
+    pub fn handle_key(&mut self, code: KeyCode, is_pressed: bool) {
         match code {
-            KeyCode::KeyW | KeyCode::ArrowUp => {
-                self.is_forward_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyA | KeyCode::ArrowLeft => {
-                self.is_left_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyS | KeyCode::ArrowDown => {
-                self.is_backward_pressed = is_pressed;
-                true
-            }
-            KeyCode::KeyD | KeyCode::ArrowRight => {
-                self.is_right_pressed = is_pressed;
-                true
-            }
-            _ => false,
+            KeyCode::KeyD => {self.translation.x = if is_pressed { 1.0} else {0.0};}
+            KeyCode::KeyA => {self.translation.x = if is_pressed {-1.0} else {0.0};}
+            KeyCode::KeyE => {self.translation.y = if is_pressed { 1.0} else {0.0};}
+            KeyCode::KeyQ => {self.translation.y = if is_pressed {-1.0} else {0.0};}
+            KeyCode::KeyW => {self.translation.z = if is_pressed { 1.0} else {0.0};}
+            KeyCode::KeyS => {self.translation.z = if is_pressed {-1.0} else {0.0};}
+
+            KeyCode::ArrowUp    => {self.rotation.x = if is_pressed { 1.0} else {0.0};}
+            KeyCode::ArrowDown  => {self.rotation.x = if is_pressed {-1.0} else {0.0};}
+            KeyCode::ArrowLeft  => {self.rotation.y = if is_pressed { 1.0} else {0.0};}
+            KeyCode::ArrowRight => {self.rotation.y = if is_pressed {-1.0} else {0.0};}
+
+            _ => {}
         }
     }
 
     pub fn update_camera(&self, camera: &mut Camera) {
-        let forward = camera.target - camera.eye;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
 
-        // Prevents glitching when the camera gets too close to the
-        // center of the scene.
-        if self.is_forward_pressed && forward_mag > self.speed {
-            camera.eye += forward_norm * self.speed;
-        }
-        if self.is_backward_pressed {
-            camera.eye -= forward_norm * self.speed;
-        }
+        let mut position = camera.eye;
+        let forward = (camera.target - camera.eye).normalize();
+        let right = forward.cross(&camera.up);
 
-        let right = forward_norm.cross(&camera.up);
+        position += right * self.translate_speed * self.translation.x;
+        position += right.cross(&forward) * self.translate_speed * self.translation.y;
+        position += forward * self.translate_speed * self.translation.z;
 
-        // Redo radius calc in case the forward/backward is pressed.
-        let forward = camera.target - camera.eye;
-        let forward_mag = forward.magnitude();
+        let rotation = na::Rotation3::from_axis_angle(
+            &na::UnitVector3::new_normalize(right), 
+            self.rotation.x * self.rotate_speed, 
+        );
+        let forward = rotation * forward;
 
-        if self.is_right_pressed {
-            // Rescale the distance between the target and the eye so 
-            // that it doesn't change. The eye, therefore, still 
-            // lies on the circle made by the target and eye.
-            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.is_left_pressed {
-            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
-        }
+        let rotation = na::Rotation3::from_axis_angle(
+            &na::UnitVector3::new_normalize(camera.up), 
+            self.rotation.y * self.rotate_speed, 
+        );
+        let mut forward = rotation * forward;
+        forward.y = forward.y.clamp(-0.9, 0.9);
+        forward = forward.normalize();
+
+        camera.eye = position;
+        camera.target = camera.eye + forward;
+        camera.up = na::Vector3::new(0.0, 1.0, 0.0);
+
+        
     }
 }
 

@@ -32,7 +32,7 @@ pub struct State {
     render_pipeline: wgpu::RenderPipeline,
 
     vertices: Vec<Vec<core::Vertex>>,
-    indices: Vec<Vec<u16>>,
+    indices: Vec<Vec<u32>>,
     instances: Vec<Vec<core::Instance>>,
 
     vertex_buffer: wgpu::Buffer,
@@ -110,7 +110,8 @@ impl State {
             color_space: wgpu::SurfaceColorSpace::Srgb
         };
 
-        let diffuse_bytes = include_bytes!("../../happy-tree.png");
+        //let diffuse_bytes = include_bytes!("../../resources/happy-tree.png");
+        let diffuse_bytes = include_bytes!("../../resources/zunda.png");
         let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
         // 1 for all textures
@@ -276,7 +277,7 @@ impl State {
             cache: None,
         });
 
-        let camera_controller = camera::CameraController::new(0.02);
+        let camera_controller = camera::CameraController::new(0.01, 0.005);
 
         let depth_texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
@@ -428,7 +429,7 @@ impl State {
                 render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..self.indices[i].len() as _, 0, 0..self.instances[i].len() as _);
             }
         }
@@ -441,15 +442,16 @@ impl State {
     }
 
     pub fn update(&mut self) {
+        self.window.reset_dead_keys();
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
 
-        println!("vertices size: {}", self.vertices.len());
-        println!("vertices[0] size: {}", self.vertices[0].len());
+        //println!("vertices size: {}", self.vertices.len());
+        //println!("vertices[0] size: {}", self.vertices[0].len());
 
-        println!("instances size: {}", self.instances.len());
-        println!("instances[0] size: {}", self.instances[0].len());
+        //println!("instances size: {}", self.instances.len());
+        //println!("instances[0] size: {}", self.instances[0].len());
 
         (
             self.vertices,
@@ -459,14 +461,13 @@ impl State {
 
     }
 
-    pub fn set_draw_data(shape_manager: &mut ShapeManager) -> (Vec<Vec<core::Vertex>>, Vec<Vec<u16>>, Vec<Vec<core::Instance>>) {
-        let vertices = Self::get_vertices(shape_manager);
-        let indices = Self::get_indices(shape_manager);
+    pub fn set_draw_data(shape_manager: &mut ShapeManager) -> (Vec<Vec<core::Vertex>>, Vec<Vec<u32>>, Vec<Vec<core::Instance>>) {
+        let (vertices, indices) = Self::get_vertices_and_indices(shape_manager);
         let instances = Self::get_instances();
         return (vertices, indices, instances);
     }
 
-    pub fn set_buffers(device: &wgpu::Device, index: usize, vertices: &Vec<Vec<core::Vertex>>, indices: &Vec<Vec<u16>>, instances: &Vec<Vec<core::Instance>>) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer) {
+    pub fn set_buffers(device: &wgpu::Device, index: usize, vertices: &Vec<Vec<core::Vertex>>, indices: &Vec<Vec<u32>>, instances: &Vec<Vec<core::Instance>>) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer) {
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
@@ -493,34 +494,23 @@ impl State {
         return (vertex_buffer, index_buffer, instance_buffer);
     }
 
-    pub fn get_vertices(shape_manager: &mut ShapeManager) -> Vec<Vec<core::Vertex>> {
-        let mut output: Vec<Vec<core::Vertex>> = Vec::new();//vec![shape_manager.get_shape_mesh(shape::Shape::new_polygon(1.0, i+3)).clone().vertices; 5];
-        //let mut output = vec![core::VERTICES.to_vec(); 5];
+    pub fn get_vertices_and_indices(shape_manager: &mut ShapeManager) -> (Vec<Vec<core::Vertex>>, Vec<Vec<u32>>) {
+        let mut vertices: Vec<Vec<core::Vertex>> = Vec::new();
+        let mut indices: Vec<Vec<u32>> = Vec::new();
         for i in 0..5 {
-            /*for v in &mut output[i] {
-                v.position[0] *= i as f32;
-                v.position[1] *= i as f32;
-                v.position[2] *= i as f32;
-            }*/
-            output.push(shape_manager.get_shape_mesh(shape::Shape::new_polygon(0.5, 3+i)).clone().vertices);
+            let indexed_vertices = shape_manager.get_shape_mesh(shape::Shape::new_cube(0.25)).clone();
+            vertices.push(indexed_vertices.vertices);
+            indices.push(indexed_vertices.indices);
         }
-        println!("{:?}", output[1]);
-        return output;
-    }
-
-    pub fn get_indices(shape_manager: &mut ShapeManager) -> Vec<Vec<u16>> {
-        let mut output: Vec<Vec<u16>> = Vec::new();
-        for i in 0..5 {
-            output.push(shape_manager.get_shape_mesh(shape::Shape::new_polygon(0.5, 3+i)).clone().indices);
-        }
-        println!("{:?}", output[0]);
-        return output;
+        //println!("{:?}", vertices[0]);
+        //println!("{:?}", indices[0]);
+        return (vertices, indices);
     }
 
     pub fn get_instances() -> Vec<Vec<core::Instance>> {
 
         let seconds = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-        let num_instances_per_row: u32 = (seconds % 3 + 8) as u32;
+        let num_instances_per_row: u32 = 10;//(seconds % 3 + 8) as u32;
         let instance_displacement: cgmath::Vector3<f32> = cgmath::Vector3::new(num_instances_per_row as f32 * 0.5, 0.0, num_instances_per_row as f32 * 0.5);
 
         let mut output: Vec<Vec<core::Instance>> = Vec::new();

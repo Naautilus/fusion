@@ -5,8 +5,6 @@ the core of the renderer; controls the logic of object positioning,
 and uses user_io and opengl_interface to abstract away the opengl/io layer.
 */
 
-use std::collections::btree_map::Range;
-
 use crate::renderer::interface::state;
 
 use winit::{
@@ -43,14 +41,14 @@ impl Instance {
 #[derive(Clone)]
 pub struct IndexedVertices {
     pub vertices: Vec<Vertex>,
-    pub indices: Vec<u16>,
+    pub indices: Vec<u32>,
 }
 
 impl IndexedVertices {
     pub fn from_vertices(vertices: Vec<Vertex>) -> Self {
         Self {
             vertices: vertices.clone(),
-            indices: (0..vertices.len() as u16).collect::<Vec<u16>>(),
+            indices: (0..vertices.len() as u32).collect::<Vec<u32>>(),
         }
     }
 }
