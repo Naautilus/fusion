@@ -111,7 +111,8 @@ impl State {
         };
 
         //let diffuse_bytes = include_bytes!("../../resources/happy-tree.png");
-        let diffuse_bytes = include_bytes!("../../resources/zunda.png");
+        //let diffuse_bytes = include_bytes!("../../resources/zunda.png");
+        let diffuse_bytes = include_bytes!("../../resources/cubemap_wgpu.png");
         let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
         // 1 for all textures

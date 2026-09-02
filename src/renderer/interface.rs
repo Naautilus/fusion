@@ -1,3 +1,9 @@
+/*
+renderer::interface:
+
+has functions that help start the renderer thread, and lets the renderer thread access physics data.
+*/
+
 mod core;
 mod state;
 mod camera;
@@ -5,12 +11,6 @@ mod texture;
 mod uniform;
 mod descriptors;
 pub mod shape;
-
-/*
-renderer::interface:
-
-has functions that help start the renderer thread, and lets the renderer thread access physics data.
-*/
 
 pub struct Interface {
     pub thread: std::thread::JoinHandle<()>

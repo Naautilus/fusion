@@ -4,8 +4,7 @@ mod camera:
 structs Camera and CameraController are defined here.
 */
 
-use cgmath::Vector3;
-use nalgebra::{self as na, Unit};
+use nalgebra as na;
 
 use winit::{
     keyboard::{KeyCode}
